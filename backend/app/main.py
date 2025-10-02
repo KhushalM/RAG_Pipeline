@@ -7,11 +7,13 @@ import numpy as np
 import os
 import uuid
 import logging
+import time
 
 from .ingestion.chunk import SemanticChunks
 from .ingestion.pdf_extract import extract_text_from_pdf
 from .storage.custom_vector_db import HybridVectorDB
-from .mistral import MistralEmbeddings
+from .mistral import MistralEmbeddings, MistralLLM
+from .retrieval.rerank import LLMReranker
 
 app = FastAPI(
     title="RAG Pipeline API",
@@ -32,10 +34,9 @@ logger = logging.getLogger(__name__)
 class RAGRequest(BaseModel):
     query: str
     max_context_chunks: Optional[int] = 3
+    retrieval_mode: Optional[str] = "hybrid"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 500
-    use_reranking: Optional[bool] = True
-    use_llm_reranking: Optional[bool] = False
 
 class RAGResponse(BaseModel):
     query: str
@@ -46,6 +47,7 @@ class RAGResponse(BaseModel):
 # In-memory storage (replace with actual database in production)
 documents_store = {}
 vector_db = HybridVectorDB()
+embedder = MistralEmbeddings()
 
 
 @app.post("/pdf_upload")
@@ -64,7 +66,6 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
     all_ids = []
 
     chunker = SemanticChunks()
-    embedder = MistralEmbeddings()
 
     for upload in pdf_files:
         file_path = f"pdf_files/{upload.filename}"
@@ -113,6 +114,51 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
         "chunk_info": chunker.get_chunk_info(all_chunks)
     }
 
+@app.post("/query_processing")
+async def query_processing(request: RAGRequest):
+    """Query processing endpoint"""
+    start_time = time.time()
+
+
+    if not vector_db.vectors:
+        logger.error("No VectorDB initialized")
+        raise HTTPException(status_code=400, detail="No VectorDB initialized")
+    
+    #Step 1: Embed query
+    query_vector = embedder.embed_query(request.query)
+    query_vector = np.array(query_vector.embedding)
+
+    #Step 2: Retrieve results based on retrieval mode
+    if request.retrieval_mode == "hybrid":
+        results = vector_db.hybrid_search(request.query, query_vector)
+    elif request.retrieval_mode == "semantic":
+        results = vector_db.semantic_search(query_vector)
+    elif request.retrieval_mode == "lexical":
+        results = vector_db.lexical_search(request.query)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid retrieval mode")
+
+    #Step 3: Reranking
+    #Apply reranking steps here
+    reranker = LLMReranker()
+    reranked_results = reranker.rerank(request.query, results)
+
+    #Step 4: Generate answer
+    mistral = MistralLLM()
+    generate_prompt = mistral.create_rag_prompt(request.query, reranked_results)
+    if request.temperature and request.max_tokens:
+        answer = mistral.generate_response(generate_prompt, request.temperature, request.max_tokens)
+    else:
+        answer = mistral.generate_response(generate_prompt)
+    
+    processing_time = time.time() - start_time
+    return {
+        "query": request.query,
+        "answer": answer,
+        "sources": reranked_results,
+        "processing_time": processing_time
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -121,4 +167,5 @@ async def health_check():
         "documents_count": len(vector_db.vectors),
         "db_stats": vector_db.get_stats()
     }
+
 

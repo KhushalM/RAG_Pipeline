@@ -1,4 +1,5 @@
 import os
+from typing import List, Dict
 from dotenv import load_dotenv
 from mistralai import Mistral
 
@@ -37,15 +38,49 @@ class MistralLLM:
         self.client = Mistral(api_key=self.api_key)
         self.model = 'mistral-large-latest'
 
-    # async def generate_response(self, prompt) -> str:
-    #     """
-    #     Generating a response using Mistral LLM API
-    #     """
-    #     message = [
-    #         {
-    #             "role": "user",
-    #             "content": prompt
-    #         }
-    #     ]
-    #     response = await self.client.chat.stream_async(model=self.model, messages=message[ChatMessage(role="user", content=prompt)])
-    #     return response.choices[0].message.content
+    def generate_response(self, prompt: str, temperature: float = 0.7, max_tokens: int = 500) -> str:
+        """
+        Generate a response using Mistral LLM API
+        """
+        messages = [
+            {
+                "role": "user", 
+                "content": prompt
+            }
+        ]
+        
+        response = self.client.chat.complete(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        return response.choices[0].message.content
+    
+    def create_rag_prompt(self, query: str, context_chunks: List[Dict]) -> str:
+        """
+        Create a well-structured RAG prompt
+        """
+        context_text = ""
+        for i, chunk in enumerate(context_chunks, 1):
+            source_info = f"[Source {i}: {chunk['metadata']['filename']}]"
+            context_text += f"{source_info}\n{chunk['text']}\n\n"
+        
+        prompt = f"""You are a helpful AI assistant. Answer the user's question based on the provided context documents. 
+
+Context Documents:
+{context_text}
+
+User Question: {query}
+
+Instructions:
+- Answer based primarily on the provided context
+- If the context doesn't contain enough information, say so clearly
+- Cite specific sources when making claims
+- Be concise but comprehensive
+- If asked about something not in the context, acknowledge the limitation
+
+Answer:"""
+        
+        return prompt
