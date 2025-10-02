@@ -66,7 +66,7 @@ class SemanticChunks:
         if not text or not text.strip():
             return []
         
-        #Step 1: We split into paragraphs
+        #Step 1: We split into sentences
         sentences = self.sentence_chunks(text)
         print(f"Number of sentences: {len(sentences)}")
         if not sentences:
@@ -76,11 +76,11 @@ class SemanticChunks:
             print(f"Number of paragraphs after filtering: {len(paras)}")
             return paras
         
-        #Step 2: We embed each paragraph
+        #Step 2: We embed each sentence
         embeddings = self.embeddings.embed_documents(sentences)
         vectors = [np.array(emb.embedding) for emb in embeddings]
         
-        #Step 3: We calculate cosine similarity between paragraphs
+        #Step 3: We calculate cosine similarity between sentences
         similarity_scores = []
         for i in range(len(vectors)-1):
            similarity = self.cosine_similarity(vectors[i], vectors[i+1])

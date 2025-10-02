@@ -1,21 +1,20 @@
 import numpy as np
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import List, Dict, Any
 import math
-from ..mistral import MistralEmbeddings
 
 
 class HybridVectorDB:
     def __init__(self):
-        self.index = []
         self.vectors = []
         self.texts = []
         self.metadata = []
         self.ids = []
-        self.word_freq = {}  
+        self.word_freq = defaultdict(dict)  
         self.doc_lengths = []
-        self.avg_doc_length = 0
+        self.avg_doc_length = 0.0
+        self._token_cache = {}
     
     def add(self, vectors: List[np.ndarray], texts: List[str], metadatas: List[Dict], ids: List[str]):
         """Add documents with vectors, texts, and metadata"""
@@ -49,11 +48,16 @@ class HybridVectorDB:
     
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization"""
-        return re.findall(r'\b\w+\b', text.lower())
+        if text in self._token_cache and len(self._token_cache) < 5000:
+            self._token_cache[text] = re.findall(r'\b\w+\b', text.lower())
+        return self._token_cache.get(text, re.findall(r'\b\w+\b', text.lower()))
     
     def _bm25_score(self, query_words: List[str], doc_idx: int, k1=1.5, b=0.75) -> float:
         """Calculate BM25 score for a document"""
-        score = 0
+        if doc_idx >= len(self.doc_lengths):
+            return 0.0
+        
+        score = 0.0
         doc_length = self.doc_lengths[doc_idx]
         
         for word in query_words:
@@ -75,6 +79,9 @@ class HybridVectorDB:
     def semantic_search(self, query_vector: np.ndarray, top_k: int = 10) -> List[Dict]:
         """Semantic search using vector similarity"""
         results = []
+        if not self.vectors:
+            return results
+        
         for i, vector in enumerate(self.vectors):
             similarity = self.cosine_similarity(query_vector, vector)
             results.append({
@@ -108,11 +115,11 @@ class HybridVectorDB:
     def hybrid_search(self, query: str, query_vector: np.ndarray, 
                      top_k: int = 5, semantic_weight: float = 0.7) -> List[Dict]:
         """Hybrid search combining semantic and lexical results"""
-        # Get results from both searches
+        # Step 1: Get results from both searches
         semantic_results = self.semantic_search(query_vector, top_k * 2)
         lexical_results = self.lexical_search(query, top_k * 2)
         
-        # Normalize scores to 0-1 range
+        # Step2: Normalize scores to 0-1 range
         if semantic_results:
             max_sem = max(r['score'] for r in semantic_results)
             for r in semantic_results:
@@ -123,11 +130,11 @@ class HybridVectorDB:
             for r in lexical_results:
                 r['norm_score'] = r['score'] / max_lex if max_lex > 0 else 0
         
-        # Combine results
+        # Step 3: Combine results
         combined = {}
         lexical_weight = 1 - semantic_weight
         
-        # Add semantic results
+        # Step 4: Add semantic results
         for result in semantic_results:
             doc_id = result['id']
             combined[doc_id] = {
@@ -139,7 +146,7 @@ class HybridVectorDB:
                 'combined_score': result['norm_score'] * semantic_weight
             }
         
-        # Add lexical results
+        # Step 5: Add lexical results
         for result in lexical_results:
             doc_id = result['id']
             if doc_id in combined:
@@ -158,7 +165,7 @@ class HybridVectorDB:
                     'combined_score': result['norm_score'] * lexical_weight
                 }
         
-        # Sort by combined score and return top_k
+        # Step 6: Sort by combined score and return top_k
         final_results = sorted(combined.values(), key=lambda x: x['combined_score'], reverse=True)
         return final_results[:top_k]
     
