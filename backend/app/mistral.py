@@ -36,7 +36,7 @@ class MistralLLM:
     def __init__(self):
         self.api_key = os.getenv("mistral_api_key")
         self.client = Mistral(api_key=self.api_key)
-        self.model = 'mistral-large-latest'
+        self.model = 'mistral-large-latest'        
 
     def generate_response(self, prompt: str, temperature: float = 0.7, max_tokens: int = 500) -> str:
         """

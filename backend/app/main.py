@@ -14,6 +14,8 @@ from .ingestion.pdf_extract import extract_text_from_pdf
 from .storage.custom_vector_db import HybridVectorDB
 from .mistral import MistralEmbeddings, MistralLLM
 from .retrieval.rerank import LLMReranker
+from .tools.retrieval_need import RetrievalNeed
+from .tools.query_transformation import QueryTransformation
 
 app = FastAPI(
     title="RAG Pipeline API",
@@ -48,6 +50,11 @@ class RAGResponse(BaseModel):
 documents_store = {}
 vector_db = HybridVectorDB()
 embedder = MistralEmbeddings()
+mistral = MistralLLM()
+retrieval_need = RetrievalNeed()
+query_transformation = QueryTransformation()
+reranker = LLMReranker()
+
 
 
 @app.post("/pdf_upload")
@@ -66,7 +73,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
     all_ids = []
 
     chunker = SemanticChunks()
-
+    #Step 1: Extract text from pdf files
     for upload in pdf_files:
         file_path = f"pdf_files/{upload.filename}"
         with open(file_path, "wb") as f:
@@ -78,11 +85,11 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
         if not chunks:
             continue
     
-        # Embeddings
+        #Step 2: Embeddings
         embeddings = embedder.embed_documents(chunks)
         vectors = [np.array(emb.embedding) for emb in embeddings]  # type: ignore
 
-        # Metadata
+        #Step 3: Metadata
         metadatas = []
         ids = []
         for i, chunk in enumerate(chunks):
@@ -95,7 +102,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
             })
             ids.append(chunk_id)
 
-        # Accumulate
+        #Step 4: Accumulate
         per_file_chunks[upload.filename] = len(chunks)
         all_chunks.extend(chunks)
         all_vectors.extend(vectors)
@@ -104,7 +111,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
 
     if not all_chunks:
         raise HTTPException(status_code=400, detail="No chunks generated from uploaded PDFs")
-
+    #Step 5: Add to vector database
     vector_db.add(all_vectors, all_chunks, all_metadatas, all_ids)
     
     return {
@@ -124,11 +131,26 @@ async def query_processing(request: RAGRequest):
         logger.error("No VectorDB initialized")
         raise HTTPException(status_code=400, detail="No VectorDB initialized")
     
-    #Step 1: Embed query
+    #Step 1: Determine if the query requires retrieval
+    need_to_retrieve = retrieval_need.need_to_retrieve(request.query)
+    if not need_to_retrieve:
+        results = mistral.generate_response(request.query)
+        return {
+            "query": request.query,
+            "answer": results,
+            "sources": ["No retrieval required"],
+            "processing_time": time.time() - start_time
+        }
+    
+    #Step 2: Transform query
+    request.query = query_transformation.transform_query(request.query)
+    logger.info(f"Transformed query: {request.query}")
+        
+    #Step 3: Embed query
     query_vector = embedder.embed_query(request.query)
     query_vector = np.array(query_vector.embedding)
 
-    #Step 2: Retrieve results based on retrieval mode
+    #Step 4: Retrieve results based on retrieval mode
     if request.retrieval_mode == "hybrid":
         results = vector_db.hybrid_search(request.query, query_vector)
     elif request.retrieval_mode == "semantic":
@@ -138,13 +160,11 @@ async def query_processing(request: RAGRequest):
     else:
         raise HTTPException(status_code=400, detail="Invalid retrieval mode")
 
-    #Step 3: Reranking
+    #Step 5: Reranking
     #Apply reranking steps here
-    reranker = LLMReranker()
     reranked_results = reranker.rerank(request.query, results)
 
-    #Step 4: Generate answer
-    mistral = MistralLLM()
+    #Step 6: Generate answer
     generate_prompt = mistral.create_rag_prompt(request.query, reranked_results)
     if request.temperature and request.max_tokens:
         answer = mistral.generate_response(generate_prompt, request.temperature, request.max_tokens)

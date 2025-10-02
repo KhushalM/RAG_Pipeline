@@ -64,7 +64,8 @@ class RAGPipelineTest:
         
         if queries is None:
             queries = [
-                "After how many months did Steve Jobs drop out and from which university?",
+                "Hey, what is the capital of Spain?",
+                "From which university did Steve Jobs drop out and when?",
             ]
         
         success_count = 0
@@ -104,7 +105,6 @@ class RAGPipelineTest:
                 print(f"  ✅ {retrieval_mode} mode: Success")
                 print(f"     Processing time: {query_data.get('processing_time', 0):.2f}s")
                 print(f"     Sources: {len(query_data.get('sources', []))}")
-                print(f"     Sources: {query_data.get('sources', [])}")
                 print(f"     Answer length: {len(query_data.get('answer', ''))}")
                 
                 answer = query_data.get('answer', '')
