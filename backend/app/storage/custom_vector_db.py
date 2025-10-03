@@ -77,7 +77,7 @@ class HybridVectorDB:
         norm_product = np.linalg.norm(vec1) * np.linalg.norm(vec2)
         return dot_product / norm_product if norm_product > 0 else 0.0
     
-    def semantic_search(self, query_vector: np.ndarray, top_k: int = 10) -> List[Dict]:
+    def semantic_search(self, query_vector: np.ndarray, top_k: int = 5) -> List[Dict]:
         """Semantic search using vector similarity"""
         results = []
         if not self.vectors:
@@ -103,7 +103,7 @@ class HybridVectorDB:
         
         return sorted_results
     
-    def lexical_search(self, query: str, top_k: int = 10) -> List[Dict]:
+    def lexical_search(self, query: str, top_k: int = 5) -> List[Dict]:
         """Lexical search using BM25"""
         query_words = self._tokenize(query)
         results = []

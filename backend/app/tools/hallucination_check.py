@@ -4,7 +4,7 @@ from ..mistral import MistralLLM
 
 class HallucinationCheck:
     def __init__(self):
-        self.mistral = MistralLLM(model="mistral-medium")
+        self.mistral = MistralLLM(model="mistral-large-latest")
         self.confidence_threshold = 0.5
     
     def _sentence_chunks(self, text) -> list[str]:
@@ -37,6 +37,8 @@ class HallucinationCheck:
                 - Answer "UNSUPPORTED" if the claim contradicts the context or has no evidence in the context
                 - Then provide a confidence score from 0.0 to 1.0
 
+                If the sentence is not a direct factual claim but just a conversational statement, answer "SUPPORTED" with a confidence score of 1.0.
+                
                 Format your response as:
                 VERDICT: [SUPPORTED or UNSUPPORTED]
                 CONFIDENCE: [0.0-1.0]

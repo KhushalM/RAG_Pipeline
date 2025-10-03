@@ -50,8 +50,8 @@ class RAGResponse(BaseModel):
 
 # In-memory storage (replace with actual database in production)
 documents_store = {}
-uploaded_files = set()  # Track uploaded filenames to prevent duplicates
-chat_memories = {}  # Track conversation history per session_id
+uploaded_files = set() 
+chat_memories = {}  
 vector_db = HybridVectorDB()
 embedder = MistralEmbeddings()
 mistral = MistralLLM()
@@ -62,13 +62,6 @@ query_router = QueryRouter()
 reranker = LLMReranker()
 hallucination_check = HallucinationCheck()
 
-import os
-import dotenv
-dotenv.load_dotenv()
-mistral_api_key = os.getenv('mistral_api_key')
-logger.info(f"mistral_api_key: {mistral_api_key}")
-
-
 @app.post("/pdf_upload")
 async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
 
@@ -76,7 +69,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
     if not pdf_files or any(f.filename is None or f.filename == "" for f in pdf_files):
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    # Save pdf files and extract text for each
+    #Step 0: Save pdf files and extract text for each
     os.makedirs("pdf_files", exist_ok=True)
     per_file_chunks = {}
     all_chunks = []
@@ -97,7 +90,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
                 "number_of_chunks": 0,
                 "message": f"Skipped {upload.filename} - already uploaded"
             }
-            continue
+            
             
         file_path = f"pdf_files/{upload.filename}"
         with open(file_path, "wb") as f:
@@ -160,7 +153,7 @@ async def query_processing(request: RAGRequest):
 
     if not vector_db.vectors:
         logger.error("No VectorDB initialized")
-        raise HTTPException(status_code=400, detail="No VectorDB initialized")
+        raise HTTPException(status_code=400, detail="No VectorDB initialized, atleast upload one PDF file")
     
     #Step 0: Check if query should be refused (PII) or needs disclaimer (Legal/Medical)
     action, message = query_refusal.should_refuse_query(request.query)
@@ -238,8 +231,8 @@ async def query_processing(request: RAGRequest):
         answer = mistral.generate_response(generate_prompt)
     
     #Step 7: Check for hallucination
-    #unverified_answer_list, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
-    #logger.info(f"Unverified answer list: {unverified_answer_list}")
+    unverified_answer_list, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
+    logger.info(f"Hallucination report: {hallucination_report}")
     
     #Step 8: Prepend disclaimer if needed
     final_answer = f"{disclaimer}\n\n{answer}" if disclaimer else answer
@@ -252,6 +245,7 @@ async def query_processing(request: RAGRequest):
         "query": request.query,
         "answer": final_answer,
         "sources": reranked_results,
+        "unverified_answer_list": unverified_answer_list,
         "processing_time": time.time() - start_time
     }
     
@@ -264,14 +258,6 @@ async def health_check():
         "db_stats": vector_db.get_stats()
     }
 
-@app.post("/reset")
-async def reset_database():
-    """Reset the vector database and uploaded files tracking"""
-    global vector_db, uploaded_files, chat_memories
-    vector_db = HybridVectorDB()
-    uploaded_files.clear()
-    chat_memories.clear()
-    return {"status": "Database reset successfully"}
 
 
 

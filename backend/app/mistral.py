@@ -2,12 +2,8 @@ import os
 from typing import List, Dict
 from dotenv import load_dotenv
 from mistralai import Mistral
-import time
 
 load_dotenv()
-
-mistral = Mistral(api_key=os.getenv("mistral_api_key"))
-
 class MistralEmbeddings:
     def __init__(self):
         self.api_key = os.getenv("mistral_api_key")

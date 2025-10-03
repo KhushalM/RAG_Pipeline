@@ -12,7 +12,7 @@ function useApi() {
     return res.json()
   }
   const ask = async (query) => {
-    const payload = { query, retrieval_mode: 'hybrid', max_context_chunks: 3 }
+    const payload = { query, retrieval_mode: 'hybrid' }
     const res = await fetch(`${API_BASE}/query_processing`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -137,7 +137,9 @@ export default function App(){
         const text = s?.text || ''
         return { name, snippet: text.slice(0, 80).replace(/\s+/g,' ') }
       })
-      setChat(prev => [...prev, { role:'assistant', content: r.answer, sources }])
+      const unverified = r.unverified_answer_list || []
+      const processingTime = r.processing_time || 0
+      setChat(prev => [...prev, { role:'assistant', content: r.answer, sources, unverified, processingTime }])
     }catch(err){
       setError(String(err))
     }finally{ setPhase('idle') }
@@ -190,11 +192,24 @@ export default function App(){
             <div key={i}>
               {m.role==='user' ? <Human>{m.content}</Human> : <Assistant>
                 <ShapedAnswer answer={m.content} />
+                {!!m.unverified && typeof m.unverified === 'string' && m.unverified.trim() && (
+                  <div className="unverified-claims">
+                    <div className="unverified-header">⚠️ Unverified Claims:</div>
+                    <div className="unverified-text">
+                      {m.unverified.trim()}
+                    </div>
+                  </div>
+                )}
                 {!!m.sources?.length && (
                   <div className="sources">
                     {m.sources.map((s, j)=> (
                       <span key={j} className="source">{s.name} · {s.snippet}</span>
                     ))}
+                  </div>
+                )}
+                {m.processingTime !== undefined && (
+                  <div className="processing-time">
+                    ⚡ {m.processingTime.toFixed(2)}s
                   </div>
                 )}
               </Assistant>}

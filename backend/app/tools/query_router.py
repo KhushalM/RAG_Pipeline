@@ -42,6 +42,12 @@ class QueryRouter:
                         - Make implicit concepts explicit
                         - Expand abbreviations and acronyms
                         - If there's conversation history, resolve pronouns and add context
+                        - **Detect output format intent and append formatting instructions:**
+                          * If asking for multiple items/benefits/reasons → append "Provide as a numbered list"
+                          * If asking for steps/process/how-to → append "Provide as step-by-step instructions"
+                          * If asking for definition/meaning → append "Provide definition with key details"
+                          * If asking to compare/contrast → append "Provide structured comparison"
+                          * Otherwise keep general format
                         - Keep it concise but comprehensive
                         - If retrieval is NOT needed, just return the original query
 
@@ -69,6 +75,18 @@ class QueryRouter:
                         {{
                             "needs_retrieval": true,
                             "transformed_query": "Tell me more about Apple Inc company history and products"
+                        }}
+
+                        Query: "What are the main benefits of machine learning?"
+                        {{
+                            "needs_retrieval": true,
+                            "transformed_query": "What are the main benefits advantages of machine learning ML artificial intelligence? Provide as a numbered list"
+                        }}
+
+                        Query: "How do I train a neural network?"
+                        {{
+                            "needs_retrieval": true,
+                            "transformed_query": "How do I train a neural network deep learning model? Provide as step-by-step instructions"
                         }}
 
                         Now analyze the user query above and return ONLY the JSON, no other text."""
