@@ -15,6 +15,7 @@ class HybridVectorDB:
         self.doc_lengths = []
         self.avg_doc_length = 0.0
         self._token_cache = {}
+        self._minimum_similarity_threshold = 0.7
     
     def add(self, vectors: List[np.ndarray], texts: List[str], metadatas: List[Dict], ids: List[str]):
         """Add documents with vectors, texts, and metadata"""
@@ -92,7 +93,13 @@ class HybridVectorDB:
                 'type': 'semantic'
             })
         
-        return sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
+        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
+
+        #If top-k chunks do not meet the minimum similarity threshold, return empty list
+        if sorted_results and sorted_results[0]['score'] < self._minimum_similarity_threshold:
+            return []
+        
+        return sorted_results
     
     def lexical_search(self, query: str, top_k: int = 10) -> List[Dict]:
         """Lexical search using BM25"""
@@ -109,8 +116,16 @@ class HybridVectorDB:
                     'metadata': self.metadata[i],
                     'type': 'lexical'
                 })
-        
-        return sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
+        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
+        if sorted_results:
+            max_score = sorted_results[0]['score']
+            for result in sorted_results:
+                result['norm_score'] = result['score'] / max_score if max_score > 0 else 0
+            
+            if sorted_results[0]['norm_score'] < self._minimum_similarity_threshold:
+                return []
+            
+        return sorted_results
     
     def hybrid_search(self, query: str, query_vector: np.ndarray, 
                      top_k: int = 5, semantic_weight: float = 0.7) -> List[Dict]:

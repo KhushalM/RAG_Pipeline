@@ -16,6 +16,7 @@ from .mistral import MistralEmbeddings, MistralLLM
 from .retrieval.rerank import LLMReranker
 from .tools.retrieval_need import RetrievalNeed
 from .tools.query_transformation import QueryTransformation
+from .tools.hallucination_check import HallucinationCheck
 
 app = FastAPI(
     title="RAG Pipeline API",
@@ -45,6 +46,8 @@ class RAGResponse(BaseModel):
     answer: str
     sources: List[Dict[str, Any]]
     processing_time: float
+    hallucination_report: Optional[Dict[str, Any]] = None
+    evidence_status: Optional[str] = "Insufficient"
 
 # In-memory storage (replace with actual database in production)
 documents_store = {}
@@ -55,6 +58,7 @@ mistral = MistralLLM()
 retrieval_need = RetrievalNeed()
 query_transformation = QueryTransformation()
 reranker = LLMReranker()
+hallucination_check = HallucinationCheck()
 
 
 
@@ -174,6 +178,15 @@ async def query_processing(request: RAGRequest):
     else:
         raise HTTPException(status_code=400, detail="Invalid retrieval mode")
 
+    if not results:
+        logger.info("Insufficient evidence to answer the query")
+        return {
+            "query": request.query,
+            "answer": "Insufficient evidence: I don't have enough reliable information in my knowledge base to answer this question confidently.",
+            "sources": [],
+            "processing_time": time.time() - start_time
+        }
+
     #Step 5: Reranking
     #Apply reranking steps here
     reranked_results = reranker.rerank(request.query, results)
@@ -185,10 +198,14 @@ async def query_processing(request: RAGRequest):
     else:
         answer = mistral.generate_response(generate_prompt)
     
+    #Step 7: Check for hallucination
+    filtered_answer, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
+    logger.info(f"Filtered claim count: {hallucination_report['original_claimed_sentences']-hallucination_report['verified_sentences']}")
     processing_time = time.time() - start_time
     return {
         "query": request.query,
-        "answer": answer,
+        "answer": filtered_answer,
+        "hallucination_report": hallucination_report,
         "sources": reranked_results,
         "processing_time": processing_time
     }
