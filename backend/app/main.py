@@ -17,7 +17,6 @@ from .retrieval.rerank import LLMReranker
 from .tools.retrieval_need import RetrievalNeed
 from .tools.query_transformation import QueryTransformation
 from .tools.hallucination_check import HallucinationCheck
-from .tools.answer_shaping import AnswerShaping
 from .tools.query_refusal import QueryRefusal
 
 app = FastAPI(
@@ -64,7 +63,6 @@ retrieval_need = RetrievalNeed()
 query_transformation = QueryTransformation()
 reranker = LLMReranker()
 hallucination_check = HallucinationCheck()
-answer_shaping = AnswerShaping()
 
 import os
 import dotenv
@@ -185,7 +183,7 @@ async def query_processing(request: RAGRequest):
         return {
             "query": request.query,
             "answer": final_answer,
-            "sources": ["No retrieval required"],
+            "sources": [],
             "processing_time": time.time() - start_time
         }
     
@@ -233,11 +231,8 @@ async def query_processing(request: RAGRequest):
     #unverified_answer_list, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
     #logger.info(f"Unverified answer list: {unverified_answer_list}")
     
-    #Step 8: Shaping the final answer based on the intent
-    shaped_answer = answer_shaping.shape_answer(request.query, answer)
-    
-    #Step 9: Prepend disclaimer if needed
-    final_answer = f"{disclaimer}\n\n{shaped_answer}" if disclaimer else shaped_answer
+    #Step 8: Prepend disclaimer if needed
+    final_answer = f"{disclaimer}\n\n{answer}" if disclaimer else answer
 
     return {
         "query": request.query,
