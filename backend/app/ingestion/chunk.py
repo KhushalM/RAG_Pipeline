@@ -23,28 +23,7 @@ class SemanticChunks:
             return []
         elif len(sentences) == 1:
             return sentences
-        
-        chunks = []
-        current_chunk = ""
-        
-        for sentence in sentences:
-            # Check if adding this sentence would exceed max size
-            test_chunk = current_chunk + (" " + sentence if current_chunk else sentence)
-            
-            if len(test_chunk) <= self.max_chunk_size:
-                current_chunk = test_chunk
-            else:
-                # Save current chunk and start new one
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-        
-        # Add final chunk
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-        
-        print(f"Grouped into {len(chunks)} size-based chunks")
-        return chunks
+        return sentences
 
     def cosine_similarity(self, vector1, vector2) -> float:
         """
@@ -66,7 +45,7 @@ class SemanticChunks:
         if not text or not text.strip():
             return []
         
-        #Step 1: We split into sentences
+        #Step 1: We split into sentences and then glue them together upto max_chunk_size
         sentences = self.sentence_chunks(text)
         print(f"Number of sentences: {len(sentences)}")
         if not sentences:
@@ -103,6 +82,7 @@ class SemanticChunks:
 
         #Step 5: We filter out chunks that are too small or too large
         final_chunks = self.filter_chunks(chunks)
+        print(f"Number of chunks after semantic chunking: {len(final_chunks)}")
         return final_chunks
 
     def filter_chunks(self, chunks) -> list[str]:

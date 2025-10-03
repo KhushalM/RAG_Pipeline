@@ -48,6 +48,7 @@ class RAGResponse(BaseModel):
 
 # In-memory storage (replace with actual database in production)
 documents_store = {}
+uploaded_files = set()  # Track uploaded filenames to prevent duplicates
 vector_db = HybridVectorDB()
 embedder = MistralEmbeddings()
 mistral = MistralLLM()
@@ -75,6 +76,18 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
     chunker = SemanticChunks()
     #Step 1: Extract text from pdf files
     for upload in pdf_files:
+        # Skip if file already uploaded
+        if upload.filename in uploaded_files:
+            logger.info(f"Skipping {upload.filename} - already uploaded")
+            return {
+                "status": "All files already uploaded",
+                "per_file_chunks": {},
+                "skipped_files": [upload.filename],
+                "number_of_chunks": 0,
+                "message": f"Skipped {upload.filename} - already uploaded"
+            }
+            continue
+            
         file_path = f"pdf_files/{upload.filename}"
         with open(file_path, "wb") as f:
             f.write(await upload.read())
@@ -102,8 +115,9 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
             })
             ids.append(chunk_id)
 
-        #Step 4: Accumulate
+        #Step 4: Accumulate and mark as uploaded
         per_file_chunks[upload.filename] = len(chunks)
+        uploaded_files.add(upload.filename)
         all_chunks.extend(chunks)
         all_vectors.extend(vectors)
         all_metadatas.extend(metadatas)
