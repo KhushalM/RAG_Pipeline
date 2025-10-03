@@ -12,7 +12,7 @@ class MistralEmbeddings:
     def __init__(self):
         self.api_key = os.getenv("mistral_api_key")
         self.client = Mistral(api_key=self.api_key)
-        self.model = 'codestral-embed'
+        self.model = 'mistral-embed'
 
     def embed_documents(self, documents):
         """

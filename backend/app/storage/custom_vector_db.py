@@ -15,7 +15,7 @@ class HybridVectorDB:
         self.doc_lengths = []
         self.avg_doc_length = 0.0
         self._token_cache = {}
-        self._minimum_similarity_threshold = 0.6
+        self._minimum_similarity_threshold = 0.5
     
     def add(self, vectors: List[np.ndarray], texts: List[str], metadatas: List[Dict], ids: List[str]):
         """Add documents with vectors, texts, and metadata"""
@@ -127,17 +127,14 @@ class HybridVectorDB:
         return sorted_results
     
     def hybrid_search(self, query: str, query_vector: np.ndarray, 
-                     top_k: int = 5, semantic_weight: float = 0.8) -> List[Dict]:
+                     top_k: int = 5, semantic_weight: float = 0.65) -> List[Dict]:
         """Hybrid search combining semantic and lexical results"""
         # Step 1: Get results from both searches
-        semantic_results = self.semantic_search(query_vector, top_k * 2)
-        lexical_results = self.lexical_search(query, top_k * 2)
+        semantic_results = self.semantic_search(query_vector, top_k)
+        lexical_results = self.lexical_search(query, top_k)
         
-        # Step2: Normalize scores to 0-1 range
-        if semantic_results:
-            max_sem = max(r['score'] for r in semantic_results)
-            for r in semantic_results:
-                r['norm_score'] = r['score'] / max_sem if max_sem > 0 else 0
+        for r in semantic_results:
+            r['norm_score'] = r['score']
         
         if lexical_results:
             max_lex = max(r['score'] for r in lexical_results)
@@ -181,15 +178,21 @@ class HybridVectorDB:
         
         # Step 6: Sort by combined score and return top_k
         final_results = sorted(combined.values(), key=lambda x: x['combined_score'], reverse=True)
-        for result in final_results:
+        
+        # Log results for debugging
+        for result in final_results[:top_k]:
             print(f"Combined score: {result['combined_score']}")
-            print(f"Semantic score: {result['semantic_score']}")
+            print(f"Semantic score (normalized): {result['semantic_score']}")
             print(f"Lexical score: {result['lexical_score']}")
-            print(f"Text: {result['text']}")
+            print(f"Text: {result['text'][:100]}...")
             print("--------------------------------")
         
-        # If top result doesn't meet minimum threshold, return empty list
-        if final_results and final_results[0]['combined_score'] < self._minimum_similarity_threshold:
+        # Filter out results below threshold
+        final_results = [r for r in final_results if r['combined_score'] >= self._minimum_similarity_threshold]
+        
+        # If no results meet threshold, return empty list
+        if not final_results:
+            print(f"No results above threshold: {self._minimum_similarity_threshold}")
             return []
         
         return final_results[:top_k]
