@@ -15,7 +15,7 @@ class HybridVectorDB:
         self.doc_lengths = []
         self.avg_doc_length = 0.0
         self._token_cache = {}
-        self._minimum_similarity_threshold = 0.5
+        self._minimum_similarity_threshold = 0.45
     
     def add(self, vectors: List[np.ndarray], texts: List[str], metadatas: List[Dict], ids: List[str]):
         """Add documents with vectors, texts, and metadata"""

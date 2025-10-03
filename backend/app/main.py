@@ -76,6 +76,7 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
     all_vectors = []
     all_metadatas = []
     all_ids = []
+    skipped_files = []
 
     chunker = SemanticChunks()
     #Step 1: Extract text from pdf files
@@ -83,14 +84,8 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
         # Skip if file already uploaded
         if upload.filename in uploaded_files:
             logger.info(f"Skipping {upload.filename} - already uploaded")
-            return {
-                "status": "All files already uploaded",
-                "per_file_chunks": {},
-                "skipped_files": [upload.filename],
-                "number_of_chunks": 0,
-                "message": f"Skipped {upload.filename} - already uploaded"
-            }
-            
+            skipped_files.append(upload.filename)
+            continue
             
         file_path = f"pdf_files/{upload.filename}"
         with open(file_path, "wb") as f:
@@ -128,16 +123,30 @@ async def pdf_upload(pdf_files: list[UploadFile] = File(...)):
         all_ids.extend(ids)
 
     if not all_chunks:
+        if skipped_files:
+            return {
+                "status": "All files already uploaded",
+                "per_file_chunks": {},
+                "skipped_files": skipped_files,
+                "number_of_chunks": 0,
+                "message": f"Skipped {len(skipped_files)} file(s) - already uploaded"
+            }
         raise HTTPException(status_code=400, detail="No chunks generated from uploaded PDFs")
     #Step 5: Add to vector database
     vector_db.add(all_vectors, all_chunks, all_metadatas, all_ids)
     
-    return {
+    response = {
         "status": "PDF(s) uploaded and processed successfully",
         "per_file_chunks": per_file_chunks,
         "number_of_chunks": len(all_chunks),
         "chunk_info": chunker.get_chunk_info(all_chunks)
     }
+    
+    if skipped_files:
+        response["skipped_files"] = skipped_files
+        response["message"] = f"Processed {len(per_file_chunks)} file(s), skipped {len(skipped_files)} duplicate(s)"
+    
+    return response
 
 @app.post("/query_processing")
 async def query_processing(request: RAGRequest):

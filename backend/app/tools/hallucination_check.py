@@ -13,7 +13,10 @@ class HallucinationCheck:
         """
         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text.strip())
         sentences = [s.strip() for s in sentences if s.strip() and len(s) > 10]
-        return sentences
+        merged_sentences = []
+        for i in range(0, len(sentences), 10):
+            merged_sentences.append(" ".join(sentences[i:i+10]))
+        return merged_sentences
     
     def _combine_context_chunks(self, context_chunks: List[Dict]) -> str:
         """
