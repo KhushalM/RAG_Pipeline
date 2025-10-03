@@ -372,13 +372,14 @@ sequenceDiagram
     end
 ```
 
-## Key Design Decisions
+## Features Implemented
 
-### Semantic Chunking
-- Splits text into sentences, measures cosine similarity between consecutive sentences
-- Merges similar sentences (threshold > 0.7) into coherent chunks
-- Maintains chunk size: 100-2000 characters for optimal retrieval
-
-### Hybrid Search
-- **65% semantic** (vector similarity) + **35% lexical** (BM25)
-- Minimum similarity threshold: 0.5 to ensure quality results
+- **Semantic Chunking**: Embedding-based chunking using cosine similarity between sentences instead of naive fixed-size splits
+- **Hybrid Search**: Custom BM25 + semantic search (65%/35%) with threshold filtering, built from scratch without external vector DB
+- **Query Routing**: LLM-powered detection to route conversational queries directly and factual queries through RAG pipeline
+- **Query Transformation**: Context-aware enhancement using chat history and output format detection for better retrieval
+- **Safety Controls**: PII detection with hard refusal, automated disclaimers for legal/medical queries
+- **Hallucination Detection**: LLM-based verification of generated claims against retrieved sources with transparency reporting
+- **Insufficient Evidence Handling**: Refuses to answer when retrieval confidence is below threshold (< 0.5)
+- **LLM Reranking**: Post-retrieval reranking using LLM to improve document relevance ordering before generation
+- **Session Chat Memory**: Maintains conversation history per session for context-aware multi-turn conversations
