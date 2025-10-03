@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 class RAGRequest(BaseModel):
     query: str
+    session_id: Optional[str] = "default"
     max_context_chunks: Optional[int] = 3
     retrieval_mode: Optional[str] = "hybrid"
     temperature: Optional[float] = 0.7
@@ -53,6 +54,7 @@ class RAGResponse(BaseModel):
 # In-memory storage (replace with actual database in production)
 documents_store = {}
 uploaded_files = set()  # Track uploaded filenames to prevent duplicates
+chat_memories = {}  # Track conversation history per session_id
 vector_db = HybridVectorDB()
 embedder = MistralEmbeddings()
 mistral = MistralLLM()
@@ -153,6 +155,12 @@ async def query_processing(request: RAGRequest):
     """Query processing endpoint"""
     start_time = time.time()
 
+    # Initialize chat memory for this session if it doesn't exist
+    if request.session_id not in chat_memories:
+        chat_memories[request.session_id] = []
+    
+    # Get conversation history for this session
+    conversation_history = chat_memories[request.session_id]
 
     if not vector_db.vectors:
         logger.error("No VectorDB initialized")
@@ -180,6 +188,11 @@ async def query_processing(request: RAGRequest):
     if not need_to_retrieve:
         results = mistral.generate_response(request.query)
         final_answer = f"{disclaimer}\n\n{results}" if disclaimer else results
+        
+        # Add to chat memory
+        chat_memories[request.session_id].append({"role": "user", "content": request.query})
+        chat_memories[request.session_id].append({"role": "assistant", "content": final_answer})
+        
         return {
             "query": request.query,
             "answer": final_answer,
@@ -187,8 +200,8 @@ async def query_processing(request: RAGRequest):
             "processing_time": time.time() - start_time
         }
     
-    #Step 2: Transform query
-    request.query = query_transformation.transform_query(request.query)
+    #Step 2: Transform query with conversation history
+    request.query = query_transformation.transform_query(request.query, conversation_history)
     logger.info(f"Transformed query: {request.query}")
         
     #Step 3: Embed query
@@ -233,6 +246,10 @@ async def query_processing(request: RAGRequest):
     
     #Step 8: Prepend disclaimer if needed
     final_answer = f"{disclaimer}\n\n{answer}" if disclaimer else answer
+    
+    # Add to chat memory
+    chat_memories[request.session_id].append({"role": "user", "content": request.query})
+    chat_memories[request.session_id].append({"role": "assistant", "content": final_answer})
 
     return {
         "query": request.query,
@@ -253,9 +270,11 @@ async def health_check():
 @app.post("/reset")
 async def reset_database():
     """Reset the vector database and uploaded files tracking"""
-    global vector_db, uploaded_files
+    global vector_db, uploaded_files, chat_memories
     vector_db = HybridVectorDB()
     uploaded_files.clear()
+    chat_memories.clear()
     return {"status": "Database reset successfully"}
+
 
 

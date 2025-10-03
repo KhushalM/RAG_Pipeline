@@ -179,20 +179,11 @@ class HybridVectorDB:
         # Step 6: Sort by combined score and return top_k
         final_results = sorted(combined.values(), key=lambda x: x['combined_score'], reverse=True)
         
-        # Log results for debugging
-        for result in final_results[:top_k]:
-            print(f"Combined score: {result['combined_score']}")
-            print(f"Semantic score (normalized): {result['semantic_score']}")
-            print(f"Lexical score: {result['lexical_score']}")
-            print(f"Text: {result['text'][:100]}...")
-            print("--------------------------------")
-        
         # Filter out results below threshold
         final_results = [r for r in final_results if r['combined_score'] >= self._minimum_similarity_threshold]
         
         # If no results meet threshold, return empty list
         if not final_results:
-            print(f"No results above threshold: {self._minimum_similarity_threshold}")
             return []
         
         return final_results[:top_k]
