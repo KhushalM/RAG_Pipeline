@@ -4,7 +4,7 @@ from ..mistral import MistralLLM
 
 class HallucinationCheck:
     def __init__(self):
-        self.mistral = MistralLLM()
+        self.mistral = MistralLLM(model="mistral-medium")
         self.confidence_threshold = 0.5
     
     def _sentence_chunks(self, text) -> list[str]:
@@ -72,7 +72,7 @@ class HallucinationCheck:
         sentences = self._sentence_chunks(answer)
         combined_context_chunks = self._combine_context_chunks(context_chunks)
         
-        verified_sentences = []
+        unverified_sentences = []
         claimed_sentences = []
         for sentence in sentences:
             if not sentence.strip():
@@ -84,14 +84,18 @@ class HallucinationCheck:
                 "confidence": confidence
             })
 
-            if is_supported:
-                verified_sentences.append(sentence)
+            if not is_supported:
+                unverified_sentences.append(sentence)
         
-        filtered_answer = " ".join(verified_sentences)
+        unverified_answer_list = ""
+        for i, unverified_sentence in enumerate(unverified_sentences):
+            unverified_answer_list += f"{i+1}. {unverified_sentence}\n"
+
         report = {
             "original_claimed_sentences": len(sentences),
-            "verified_sentences": len(verified_sentences),
+            "unverified_sentences": len(unverified_sentences),
             "claimed_sentences": claimed_sentences,
+            "unverified_answer_list": unverified_answer_list
         }
-        return filtered_answer, report
+        return unverified_answer_list, report
         

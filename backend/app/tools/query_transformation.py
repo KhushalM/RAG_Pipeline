@@ -2,7 +2,7 @@ from ..mistral import MistralLLM
 
 class QueryTransformation:
     def __init__(self):
-        self.mistral = MistralLLM()
+        self.mistral = MistralLLM(model="mistral-small-2503")
 
     def transform_query(self, query: str) -> str:
         """
@@ -16,6 +16,8 @@ class QueryTransformation:
         - Expand abbreviations and acronyms
         - Rephrase for better semantic matching
         - Keep the core intent intact
+        - Keep the query as concise as possible
+        - Also mention if the query intends a list, comparison, definition, or steps
 
         Original Query: "{query}"
 

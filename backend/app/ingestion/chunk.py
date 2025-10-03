@@ -1,8 +1,6 @@
 from ..mistral import MistralEmbeddings
 import numpy as np
 import re
-
-#Could implement a dynamic threshold based on the text length 
 class SemanticChunks:
     def __init__(self, similarity_threshold=0.7, min_chunk_size=100, max_chunk_size=2000):
         self.embeddings = MistralEmbeddings()
@@ -21,8 +19,7 @@ class SemanticChunks:
 
         if not sentences:
             return []
-        elif len(sentences) == 1:
-            return sentences
+
         return sentences
 
     def cosine_similarity(self, vector1, vector2) -> float:

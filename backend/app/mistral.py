@@ -2,6 +2,7 @@ import os
 from typing import List, Dict
 from dotenv import load_dotenv
 from mistralai import Mistral
+import time
 
 load_dotenv()
 
@@ -11,17 +12,19 @@ class MistralEmbeddings:
     def __init__(self):
         self.api_key = os.getenv("mistral_api_key")
         self.client = Mistral(api_key=self.api_key)
-        self.model = 'mistral-embed'
+        self.model = 'codestral-embed'
 
     def embed_documents(self, documents):
         """
         Embedding all chunked documents into a list of embeddings using Mistral Embeddings API
         """
+        print(f"mistral_api_key: {os.getenv('mistral_api_key')}")
         embeddings = []
         batch_size = 32
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
             embeddings.extend(self.client.embeddings.create(model=self.model, inputs=batch).data)
+        
 
         return embeddings
     
@@ -33,10 +36,10 @@ class MistralEmbeddings:
         return response.data[0]
 
 class MistralLLM:
-    def __init__(self):
+    def __init__(self, model: str = 'mistral-large-2411'):
         self.api_key = os.getenv("mistral_api_key")
         self.client = Mistral(api_key=self.api_key)
-        self.model = 'mistral-large-latest'        
+        self.model = model        
 
     def generate_response(self, prompt: str, temperature: float = 0.7, max_tokens: int = 500) -> str:
         """

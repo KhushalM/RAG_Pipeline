@@ -15,7 +15,7 @@ class HybridVectorDB:
         self.doc_lengths = []
         self.avg_doc_length = 0.0
         self._token_cache = {}
-        self._minimum_similarity_threshold = 0.7
+        self._minimum_similarity_threshold = 0.6
     
     def add(self, vectors: List[np.ndarray], texts: List[str], metadatas: List[Dict], ids: List[str]):
         """Add documents with vectors, texts, and metadata"""
@@ -83,8 +83,14 @@ class HybridVectorDB:
         if not self.vectors:
             return results
         
+        # Normalize query vector
+        query_norm = np.linalg.norm(query_vector)
+        if query_norm > 0:
+            query_vector = query_vector / query_norm
+        
+        # Since stored vectors are already normalized, cosine similarity = dot product
         for i, vector in enumerate(self.vectors):
-            similarity = self.cosine_similarity(query_vector, vector)
+            similarity = float(np.dot(query_vector, vector))
             results.append({
                 'id': self.ids[i],
                 'score': similarity,
@@ -94,10 +100,6 @@ class HybridVectorDB:
             })
         
         sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
-
-        #If top-k chunks do not meet the minimum similarity threshold, return empty list
-        if sorted_results and sorted_results[0]['score'] < self._minimum_similarity_threshold:
-            return []
         
         return sorted_results
     
@@ -122,13 +124,10 @@ class HybridVectorDB:
             for result in sorted_results:
                 result['norm_score'] = result['score'] / max_score if max_score > 0 else 0
             
-            if sorted_results[0]['norm_score'] < self._minimum_similarity_threshold:
-                return []
-            
         return sorted_results
     
     def hybrid_search(self, query: str, query_vector: np.ndarray, 
-                     top_k: int = 5, semantic_weight: float = 0.7) -> List[Dict]:
+                     top_k: int = 5, semantic_weight: float = 0.8) -> List[Dict]:
         """Hybrid search combining semantic and lexical results"""
         # Step 1: Get results from both searches
         semantic_results = self.semantic_search(query_vector, top_k * 2)
@@ -182,6 +181,17 @@ class HybridVectorDB:
         
         # Step 6: Sort by combined score and return top_k
         final_results = sorted(combined.values(), key=lambda x: x['combined_score'], reverse=True)
+        for result in final_results:
+            print(f"Combined score: {result['combined_score']}")
+            print(f"Semantic score: {result['semantic_score']}")
+            print(f"Lexical score: {result['lexical_score']}")
+            print(f"Text: {result['text']}")
+            print("--------------------------------")
+        
+        # If top result doesn't meet minimum threshold, return empty list
+        if final_results and final_results[0]['combined_score'] < self._minimum_similarity_threshold:
+            return []
+        
         return final_results[:top_k]
     
     def get_stats(self) -> Dict[str, Any]:

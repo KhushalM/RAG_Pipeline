@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -25,6 +26,69 @@ function useApi() {
 
 function Human({ children }) { return <div className="msg user">{children}</div> }
 function Assistant({ children }) { return <div className="msg assistant">{children}</div> }
+
+function ShapedAnswer({ answer }) {
+  if (typeof answer === 'string') {
+    return <div className="markdown-content"><ReactMarkdown>{answer}</ReactMarkdown></div>
+  }
+
+  const { format_type, raw_answer } = answer
+
+  if (format_type === 'list' && answer.items) {
+    return (
+      <div className="shaped-answer">
+        <ul className="answer-list">
+          {answer.items.map((item, idx) => (
+            <li key={idx}><ReactMarkdown>{item}</ReactMarkdown></li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  if (format_type === 'steps' && answer.steps) {
+    return (
+      <div className="shaped-answer">
+        <ol className="answer-steps">
+          {answer.steps.map((step, idx) => (
+            <li key={idx}>
+              <strong>Step {step.num}:</strong> <ReactMarkdown>{step.text}</ReactMarkdown>
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+
+  if (format_type === 'definition') {
+    return (
+      <div className="shaped-answer">
+        <div className="answer-definition">
+          <p><strong>Definition:</strong> <ReactMarkdown>{answer.definition}</ReactMarkdown></p>
+          {answer.details && answer.details.length > 0 && (
+            <div className="answer-details">
+              {answer.details.map((detail, idx) => (
+                <div key={idx}><ReactMarkdown>{detail}</ReactMarkdown></div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (format_type === 'general' && answer.paragraphs) {
+    return (
+      <div className="shaped-answer">
+        {answer.paragraphs.map((para, idx) => (
+          <div key={idx}><ReactMarkdown>{para}</ReactMarkdown></div>
+        ))}
+      </div>
+    )
+  }
+
+  return <div className="markdown-content"><ReactMarkdown>{raw_answer || JSON.stringify(answer)}</ReactMarkdown></div>
+}
 
 export default function App(){
   const { upload, ask } = useApi()
@@ -125,7 +189,7 @@ export default function App(){
           {chat.map((m,i)=> (
             <div key={i}>
               {m.role==='user' ? <Human>{m.content}</Human> : <Assistant>
-                <div>{m.content}</div>
+                <ShapedAnswer answer={m.content} />
                 {!!m.sources?.length && (
                   <div className="sources">
                     {m.sources.map((s, j)=> (

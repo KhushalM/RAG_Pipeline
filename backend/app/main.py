@@ -17,6 +17,7 @@ from .retrieval.rerank import LLMReranker
 from .tools.retrieval_need import RetrievalNeed
 from .tools.query_transformation import QueryTransformation
 from .tools.hallucination_check import HallucinationCheck
+from .tools.answer_shaping import AnswerShaping
 
 app = FastAPI(
     title="RAG Pipeline API",
@@ -55,11 +56,19 @@ uploaded_files = set()  # Track uploaded filenames to prevent duplicates
 vector_db = HybridVectorDB()
 embedder = MistralEmbeddings()
 mistral = MistralLLM()
+
+#Defining all tools (feature-specific not necessarily LLM tools)
 retrieval_need = RetrievalNeed()
 query_transformation = QueryTransformation()
 reranker = LLMReranker()
 hallucination_check = HallucinationCheck()
+answer_shaping = AnswerShaping()
 
+import os
+import dotenv
+dotenv.load_dotenv()
+mistral_api_key = os.getenv('mistral_api_key')
+logger.info(f"mistral_api_key: {mistral_api_key}")
 
 
 @app.post("/pdf_upload")
@@ -199,17 +208,19 @@ async def query_processing(request: RAGRequest):
         answer = mistral.generate_response(generate_prompt)
     
     #Step 7: Check for hallucination
-    filtered_answer, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
-    logger.info(f"Filtered claim count: {hallucination_report['original_claimed_sentences']-hallucination_report['verified_sentences']}")
-    processing_time = time.time() - start_time
+    #unverified_answer_list, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
+    #logger.info(f"Unverified answer list: {unverified_answer_list}")
+    
+    #Stp 8: Shaping the final answer based on the intent
+    shaped_answer = answer_shaping.shape_answer(request.query, answer)
+
     return {
         "query": request.query,
-        "answer": filtered_answer,
-        "hallucination_report": hallucination_report,
+        "answer": shaped_answer,
         "sources": reranked_results,
-        "processing_time": processing_time
+        "processing_time": time.time() - start_time
     }
-
+    
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -218,5 +229,13 @@ async def health_check():
         "documents_count": len(vector_db.vectors),
         "db_stats": vector_db.get_stats()
     }
+
+@app.post("/reset")
+async def reset_database():
+    """Reset the vector database and uploaded files tracking"""
+    global vector_db, uploaded_files
+    vector_db = HybridVectorDB()
+    uploaded_files.clear()
+    return {"status": "Database reset successfully"}
 
 
