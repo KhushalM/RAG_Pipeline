@@ -14,6 +14,7 @@ A Retrieval-Augmented Generation (RAG) pipeline for PDF documents, featuring hyb
   - Legal/medical disclaimers
 - **Answer Quality**:
   - LLM-based reranking
+  - Chat memory support
   - Hallucination detection (LLM based)
   - Insufficient evidence handling 
   - Answer shaping (lists, steps, comparisons) (Transforming query to request the intended)
@@ -153,41 +154,6 @@ The frontend UI will be available at `http://localhost:5173`
 - **Step-by-step**: "How do I implement this process?" (formatted as steps)
 - **Conversational**: "Hello, how are you?" (doesn't trigger retrieval)
 
-## API Endpoints
-
-### Upload PDFs
-
-```bash
-POST http://localhost:8000/pdf_upload
-Content-Type: multipart/form-data
-
-# Upload multiple PDFs
-curl -X POST "http://localhost:8000/pdf_upload" \
-  -F "pdf_files=@document1.pdf" \
-  -F "pdf_files=@document2.pdf"
-```
-
-### Query Processing
-
-```bash
-POST http://localhost:8000/query_processing
-Content-Type: application/json
-
-{
-  "query": "What are the main topics discussed?",
-  "session_id": "default",
-  "retrieval_mode": "hybrid",
-  "temperature": 0.7,
-  "max_tokens": 500
-}
-```
-
-### Health Check
-
-```bash
-GET http://localhost:8000/health
-```
-
 ## Project Structure
 
 ```
@@ -218,7 +184,7 @@ RAG_Pipeline/
 └── README.md
 ```
 
-## Technologies Used
+## Libraries Used
 
 ### Backend
 - **[FastAPI](https://fastapi.tiangolo.com/)** - Modern Python web framework
@@ -232,49 +198,187 @@ RAG_Pipeline/
 - **[Vite](https://vite.dev/)** - Build tool
 - **[React Markdown](https://github.com/remarkjs/react-markdown)** - Markdown rendering
 
+## Architecture Diagrams
+
+### PDF Upload Pipeline
+
+The following diagram illustrates the complete workflow of the `/pdf_upload` endpoint, from receiving a PDF file to storing it in the vector database:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI as FastAPI<br/>(main.py)
+    participant PDFExtract as PDF Extract<br/>(pdf_extract.py)
+    participant SemanticChunker as Semantic Chunker<br/>(chunk.py)
+    participant MistralEmbed as Mistral Embeddings<br/>(mistral.py)
+    participant VectorDB as Hybrid Vector DB<br/>(custom_vector_db.py)
+
+    Client->>FastAPI: POST /pdf_upload (PDF files)
+    
+    alt File Already Uploaded
+        FastAPI->>FastAPI: Check if filename in uploaded_files set
+        FastAPI-->>Client: Return "already uploaded" message
+    else File Not Uploaded
+        FastAPI->>FastAPI: Save PDF to pdf_files/ directory
+        
+        FastAPI->>PDFExtract: extract_text_from_pdf(file_path)
+        PDFExtract->>PDFExtract: Open PDF with PyMuPDF
+        PDFExtract->>PDFExtract: Extract text from all pages
+        PDFExtract-->>FastAPI: Return concatenated text
+        
+        FastAPI->>SemanticChunker: chunking(text)
+        
+        SemanticChunker->>SemanticChunker: sentence_chunks()<br/>Split text into sentences using regex
+        Note over SemanticChunker: Regex: (?<=[.!?])\s+(?=[A-Z])
+        
+        SemanticChunker->>MistralEmbed: embed_documents(sentences)
+        MistralEmbed->>MistralEmbed: Batch sentences (32 per batch)
+        MistralEmbed->>MistralEmbed: Call Mistral API with<br/>model='mistral-embed'
+        MistralEmbed-->>SemanticChunker: Return sentence embeddings
+        
+        SemanticChunker->>SemanticChunker: Calculate cosine similarity<br/>between consecutive sentences
+        Note over SemanticChunker: similarity = dot(v1,v2) / (||v1|| * ||v2||)
+        
+        SemanticChunker->>SemanticChunker: Glue sentences together<br/>if similarity > 0.7 AND<br/>combined_size <= max_chunk_size
+        
+        SemanticChunker->>SemanticChunker: filter_chunks()<br/>Merge small chunks<br/>Split large chunks
+        Note over SemanticChunker: min_chunk_size=100<br/>max_chunk_size=2000
+        
+        SemanticChunker-->>FastAPI: Return final chunks
+        
+        FastAPI->>MistralEmbed: embed_documents(chunks)
+        MistralEmbed->>MistralEmbed: Batch chunks (32 per batch)
+        MistralEmbed->>MistralEmbed: Call Mistral API with<br/>model='mistral-embed'
+        MistralEmbed-->>FastAPI: Return chunk embeddings (vectors)
+        
+        FastAPI->>FastAPI: Create metadata for each chunk<br/>{filename, chunk_index,<br/>chunk_size, file_path}
+        
+        FastAPI->>FastAPI: Generate UUID for each chunk
+        
+        FastAPI->>VectorDB: add(vectors, chunks, metadatas, ids)
+        
+        VectorDB->>VectorDB: Normalize vectors<br/>(v / ||v||)
+        
+        VectorDB->>VectorDB: Extend internal storage<br/>(vectors, texts, metadata, ids)
+        
+        VectorDB->>VectorDB: _build_bm25_index()
+        Note over VectorDB: Tokenize all texts<br/>Build word frequency map<br/>Calculate doc lengths & avg
+        
+        VectorDB-->>FastAPI: Storage complete
+        
+        FastAPI->>FastAPI: Mark filename as uploaded
+        
+        FastAPI-->>Client: Return success response<br/>{status, per_file_chunks,<br/>number_of_chunks, chunk_info}
+    end
+```
+
+### Query Processing Pipeline
+
+The following diagram shows the complete RAG query processing flow with safety checks, intelligent routing, and hallucination detection:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI as FastAPI<br/>(main.py)
+    participant QueryRefusal as Query Refusal<br/>(query_refusal.py)
+    participant QueryRouter as Query Router<br/>(query_router.py)
+    participant MistralLLM as Mistral LLM<br/>(mistral.py)
+    participant MistralEmbed as Mistral Embeddings<br/>(mistral.py)
+    participant VectorDB as Hybrid Vector DB<br/>(custom_vector_db.py)
+    participant Reranker as LLM Reranker<br/>(rerank.py)
+    participant HallucinationCheck as Hallucination Check<br/>(hallucination_check.py)
+
+    Client->>FastAPI: POST /query_processing<br/>{query, session_id, retrieval_mode}
+    
+    FastAPI->>FastAPI: Initialize chat_memories[session_id]<br/>if not exists
+    
+    alt No Vector DB
+        FastAPI->>FastAPI: Check if vector_db.vectors empty
+        FastAPI-->>Client: Error: "No VectorDB initialized,<br/>please upload at least one PDF"
+    else Vector DB Exists
+        FastAPI->>QueryRefusal: should_refuse_query(query)
+        QueryRefusal->>QueryRefusal: Check for PII patterns<br/>(SSN, credit cards, emails, etc.)
+        QueryRefusal->>QueryRefusal: Check for legal/medical keywords
+        
+        alt PII Detected
+            QueryRefusal-->>FastAPI: action="REFUSE"
+            FastAPI-->>Client: Refuse with message
+        else Legal/Medical Query
+            QueryRefusal-->>FastAPI: action="DISCLAIMER", message
+            FastAPI->>FastAPI: Store disclaimer for later
+        else Safe Query
+            QueryRefusal-->>FastAPI: action="ALLOW"
+        end
+        
+        FastAPI->>QueryRouter: analyze_and_transform(query, history)
+        QueryRouter->>QueryRouter: Detect if KB retrieval needed<br/>(factual vs conversational)
+        QueryRouter->>QueryRouter: Transform query with context<br/>& output format hints
+        QueryRouter-->>FastAPI: (need_retrieval, transformed_query)
+        
+        alt No Retrieval Needed
+            FastAPI->>MistralLLM: generate_response(query)
+            Note over MistralLLM: Model: mistral-small-2503
+            MistralLLM-->>FastAPI: Direct answer
+            FastAPI->>FastAPI: Prepend disclaimer if needed
+            FastAPI->>FastAPI: Add to chat_memories[session_id]
+            FastAPI-->>Client: {answer, sources=[], processing_time}
+            
+        else Retrieval Required
+            FastAPI->>FastAPI: Use transformed_query for retrieval
+            
+            FastAPI->>MistralEmbed: embed_query(transformed_query)
+            MistralEmbed->>MistralEmbed: Call Mistral API<br/>model='mistral-embed'
+            MistralEmbed-->>FastAPI: query_vector
+            
+            alt Hybrid Search (65% semantic + 35% lexical)
+                FastAPI->>VectorDB: hybrid_search(query, query_vector)
+                VectorDB->>VectorDB: semantic_search(query_vector)<br/>Cosine similarity with normalized vectors
+                VectorDB->>VectorDB: lexical_search(query)<br/>BM25 scoring
+                VectorDB->>VectorDB: Combine scores with weights<br/>Filter by threshold (0.5)
+                Note over VectorDB: combined_score = 0.65*semantic + 0.35*lexical<br/>Return top-k if >= 0.5 threshold
+            else Semantic Only
+                FastAPI->>VectorDB: semantic_search(query_vector)
+            else Lexical Only  
+                FastAPI->>VectorDB: lexical_search(query)
+            end
+            
+            alt No Results or Below Threshold
+                VectorDB-->>FastAPI: Empty results
+                FastAPI->>FastAPI: Prepend disclaimer if needed
+                FastAPI-->>Client: "Insufficient evidence:<br/>Not enough reliable information<br/>to answer confidently"
+                
+            else Valid Results
+                VectorDB-->>FastAPI: Retrieved documents
+                
+                FastAPI->>Reranker: rerank(query, results)
+                Reranker->>Reranker: Use LLM to score relevance<br/>of each document to query
+                Reranker-->>FastAPI: Reranked top documents
+                
+                FastAPI->>MistralLLM: create_rag_prompt(query, reranked_results)
+                FastAPI->>MistralLLM: generate_response(prompt, temp, max_tokens)
+                Note over MistralLLM: Model: mistral-large-latest<br/>Context: Retrieved documents + query
+                MistralLLM-->>FastAPI: Generated answer
+                
+                FastAPI->>HallucinationCheck: check_hallucination(query, answer, sources)
+                HallucinationCheck->>HallucinationCheck: Extract claims from answer
+                HallucinationCheck->>HallucinationCheck: Verify each claim against sources
+                HallucinationCheck-->>FastAPI: (unverified_claims, report)
+                
+                FastAPI->>FastAPI: Prepend disclaimer if needed
+                FastAPI->>FastAPI: Add to chat_memories[session_id]
+                FastAPI-->>Client: {answer, sources, unverified_claims,<br/>processing_time}
+            end
+        end
+    end
+```
+
 ## Key Design Decisions
 
 ### Semantic Chunking
-- Splits text into sentences and analyzes semantic similarity between consecutive sentences
-- Merges similar sentences (cosine similarity > 0.7) into coherent chunks
-- Maintains chunk size between 100-2000 characters for optimal retrieval
+- Splits text into sentences, measures cosine similarity between consecutive sentences
+- Merges similar sentences (threshold > 0.7) into coherent chunks
+- Maintains chunk size: 100-2000 characters for optimal retrieval
 
 ### Hybrid Search
-- **65% semantic weight**: Vector similarity for conceptual matching
-- **35% lexical weight**: BM25 for exact keyword matching
-- Minimum similarity threshold (0.5) to ensure quality results
-
-### Query Processing Pipeline
-1. **Query Refusal**: Check for PII, legal/medical queries
-2. **Query Routing**: Detect if retrieval is needed
-3. **Keeps recent memory in context**: Keeps the past 3 chat conversations in context to better align the answer
-4. **Query Transformation**: Add keywords, resolve context, detect output format like list
-5. **Retrieval**: Hybrid search across knowledge base (Semantic + BM25)
-6. **Reranking**: LLM reranks the top retreived sources to improve generation
-7. **Refuse to answer**: If not enough evidence is found in the top-k sources, the agent refuses to answer without evidence
-8. **Generation**: Create answer with sourced citations
-9. **Hallucination Check**: Verify claims against context
-
-## Testing
-
-```bash
-cd backend
-source .venv/bin/activate
-python app/tests/test_rag_pipeline.py
-```
-
-## Troubleshooting
-
-### Backend won't start
-- Check Python version: `python --version` (should be 3.11+)
-- Verify virtual environment is activated
-- Ensure `.env` file exists with valid API key
-
-### Frontend won't start
-- Check Node version: `node --version` (should be 18+)
-- Clear node_modules: `rm -rf node_modules && npm install`
-
-### Mistral API Errors
-- If you see "service_tier_capacity_exceeded", the API is overloaded - wait a few moments
-- If you see "rate_limit", you've exceeded the rate limit - wait before retrying
-- Consider using your own Mistral API key if the provided one is not working
+- **65% semantic** (vector similarity) + **35% lexical** (BM25)
+- Minimum similarity threshold: 0.5 to ensure quality results
