@@ -18,6 +18,7 @@ from .tools.retrieval_need import RetrievalNeed
 from .tools.query_transformation import QueryTransformation
 from .tools.hallucination_check import HallucinationCheck
 from .tools.answer_shaping import AnswerShaping
+from .tools.query_refusal import QueryRefusal
 
 app = FastAPI(
     title="RAG Pipeline API",
@@ -58,6 +59,7 @@ embedder = MistralEmbeddings()
 mistral = MistralLLM()
 
 #Defining all tools (feature-specific not necessarily LLM tools)
+query_refusal = QueryRefusal()
 retrieval_need = RetrievalNeed()
 query_transformation = QueryTransformation()
 reranker = LLMReranker()
@@ -158,13 +160,31 @@ async def query_processing(request: RAGRequest):
         logger.error("No VectorDB initialized")
         raise HTTPException(status_code=400, detail="No VectorDB initialized")
     
+    #Step 0: Check if query should be refused (PII) or needs disclaimer (Legal/Medical)
+    action, message = query_refusal.should_refuse_query(request.query)
+    logger.info(f"Query refusal action: {action}")
+    logger.info(f"Query refusal message: {message}")
+    
+    if action == "REFUSE":
+        logger.warning(f"Query refused: {message}")
+        return {
+            "query": request.query,
+            "answer": message,
+            "sources": [],
+            "processing_time": time.time() - start_time
+        }
+    
+    # Store disclaimer if needed, will be prepended to final answer
+    disclaimer = message if action == "DISCLAIMER" else None
+    
     #Step 1: Determine if the query requires retrieval
     need_to_retrieve = retrieval_need.need_to_retrieve(request.query)
     if not need_to_retrieve:
         results = mistral.generate_response(request.query)
+        final_answer = f"{disclaimer}\n\n{results}" if disclaimer else results
         return {
             "query": request.query,
-            "answer": results,
+            "answer": final_answer,
             "sources": ["No retrieval required"],
             "processing_time": time.time() - start_time
         }
@@ -189,9 +209,11 @@ async def query_processing(request: RAGRequest):
 
     if not results:
         logger.info("Insufficient evidence to answer the query")
+        insufficient_msg = "Insufficient evidence: I don't have enough reliable information in my knowledge base to answer this question confidently."
+        final_answer = f"{disclaimer}\n\n{insufficient_msg}" if disclaimer else insufficient_msg
         return {
             "query": request.query,
-            "answer": "Insufficient evidence: I don't have enough reliable information in my knowledge base to answer this question confidently.",
+            "answer": final_answer,
             "sources": [],
             "processing_time": time.time() - start_time
         }
@@ -211,12 +233,15 @@ async def query_processing(request: RAGRequest):
     #unverified_answer_list, hallucination_report = hallucination_check.check_hallucination(request.query, answer, reranked_results)
     #logger.info(f"Unverified answer list: {unverified_answer_list}")
     
-    #Stp 8: Shaping the final answer based on the intent
+    #Step 8: Shaping the final answer based on the intent
     shaped_answer = answer_shaping.shape_answer(request.query, answer)
+    
+    #Step 9: Prepend disclaimer if needed
+    final_answer = f"{disclaimer}\n\n{shaped_answer}" if disclaimer else shaped_answer
 
     return {
         "query": request.query,
-        "answer": shaped_answer,
+        "answer": final_answer,
         "sources": reranked_results,
         "processing_time": time.time() - start_time
     }
