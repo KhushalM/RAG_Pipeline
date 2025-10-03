@@ -36,7 +36,7 @@ class MistralEmbeddings:
         return response.data[0]
 
 class MistralLLM:
-    def __init__(self, model: str = 'mistral-large-2411'):
+    def __init__(self, model: str = 'mistral-large-latest'):
         self.api_key = os.getenv("mistral_api_key")
         self.client = Mistral(api_key=self.api_key)
         self.model = model        

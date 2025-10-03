@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -14,8 +14,7 @@ from .ingestion.pdf_extract import extract_text_from_pdf
 from .storage.custom_vector_db import HybridVectorDB
 from .mistral import MistralEmbeddings, MistralLLM
 from .retrieval.rerank import LLMReranker
-from .tools.retrieval_need import RetrievalNeed
-from .tools.query_transformation import QueryTransformation
+from .tools.query_router import QueryRouter
 from .tools.hallucination_check import HallucinationCheck
 from .tools.query_refusal import QueryRefusal
 
@@ -38,7 +37,6 @@ logger = logging.getLogger(__name__)
 class RAGRequest(BaseModel):
     query: str
     session_id: Optional[str] = "default"
-    max_context_chunks: Optional[int] = 3
     retrieval_mode: Optional[str] = "hybrid"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 500
@@ -49,7 +47,6 @@ class RAGResponse(BaseModel):
     sources: List[Dict[str, Any]]
     processing_time: float
     hallucination_report: Optional[Dict[str, Any]] = None
-    evidence_status: Optional[str] = "Insufficient"
 
 # In-memory storage (replace with actual database in production)
 documents_store = {}
@@ -61,8 +58,7 @@ mistral = MistralLLM()
 
 #Defining all tools (feature-specific not necessarily LLM tools)
 query_refusal = QueryRefusal()
-retrieval_need = RetrievalNeed()
-query_transformation = QueryTransformation()
+query_router = QueryRouter()
 reranker = LLMReranker()
 hallucination_check = HallucinationCheck()
 
@@ -183,8 +179,9 @@ async def query_processing(request: RAGRequest):
     # Store disclaimer if needed, will be prepended to final answer
     disclaimer = message if action == "DISCLAIMER" else None
     
-    #Step 1: Determine if the query requires retrieval
-    need_to_retrieve = retrieval_need.need_to_retrieve(request.query)
+    #Step 1: Determine if retrieval is needed AND transform query in one call
+    need_to_retrieve, transformed_query = query_router.analyze_and_transform(request.query, conversation_history)
+    
     if not need_to_retrieve:
         results = mistral.generate_response(request.query)
         final_answer = f"{disclaimer}\n\n{results}" if disclaimer else results
@@ -200,8 +197,8 @@ async def query_processing(request: RAGRequest):
             "processing_time": time.time() - start_time
         }
     
-    #Step 2: Transform query with conversation history
-    request.query = query_transformation.transform_query(request.query, conversation_history)
+    #Step 2: Use transformed query for retrieval
+    request.query = transformed_query
     logger.info(f"Transformed query: {request.query}")
         
     #Step 3: Embed query
